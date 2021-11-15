@@ -7,11 +7,12 @@
 //   / /|  / / /__/  __/  / _, _/ / /__/  __/  / /_/ / /_/ / /_  
 //  /_/ |_/_/\___/\___/  /_/ |_/_/\___/\___/  /_____/\____/\__/  
 //  
-// fuck you faggot its magnum dong time -Liam
+// fuck you faggot its magnum dong time -Jucci
 // yeeyee
 // Only works on multiplication table dumbass
 // when the page loads, go to the console of your web browser and paste the code in the console and kill dat sheeeet.
 // Console hotkey is (CTRL+SHIFT+I)
+// latuh bitch
 const interval = setInterval(function() {
     var problem = document.getElementsByClassName("card-title");
     for (var i = 0; i < problem.length; i++) {

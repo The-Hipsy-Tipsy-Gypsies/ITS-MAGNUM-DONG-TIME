@@ -7,7 +7,7 @@
 // @match *://membean.com/training_sessions/*
 // @grant none
 // ==/UserScript==
-// This script may detect cheating, not my fucking fault lmao. -Liam
+// This script may detect cheating, not my fucking fault lmao. -Jucci
 var meta = document.createElement('meta');
 meta.httpEquiv = "refresh";
 meta.content = "6";

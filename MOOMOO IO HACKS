@@ -44,7 +44,7 @@
 // @antifeature  tracking
 // ==/UserScript==
 
-// dont be a bitch, just suck my magnum dong, haha fuck u all. -Liam
+// dont be a bitch, just suck my magnum dong, haha fuck u all. -Jucci
 
 const windowloc = window.location.host;
 

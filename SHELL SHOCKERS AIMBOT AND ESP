@@ -1,268 +1,292 @@
 // ==UserScript==
-// @name         ShellShockers Aimbot and ESP
+// @name         Shellshock.IO Aimbot & ESP
 // @namespace    http://tampermonkey.net/
-// @version      0.1
-// @description  try to take over the world!
-// @author       PacyTense
+// @version      0.1.1
+// @description  Locks aim to the nearest player in shellshock.io. Comes with an ESP too. Press B, V, N to toggle aimbot, esp, esp lines.
+// @author       Zertalious (Zert)
 // @match        *://shellshock.io/*
-// @match        *://eggcombat.io/*
+// @match        *://eggcombat.com/*
 // @match        *://violentegg.club/*
-// @run-at       document-start
+// @icon         https://www.google.com/s2/favicons?domain=shellshock.io
 // @grant        none
-// @noframes
+// @run-at       document-start
+// @antifeature  ads
 // ==/UserScript==
 
+XMLHttpRequest = class extends XMLHttpRequest {
 
+	open( method, url ) {
 
+		if ( url.indexOf( 'shellshock.js' ) > - 1 ) {
 
-window.settings = {
-    blueTeam: "#4254f5",
-    redTeam: "#eb3326",
-    orangeTeam: "#fca503",
-    aimbotKey: "ShiftLeft",
-    angleOrDistance: true,
-    aimbotSmoothness: 2,
-    maxAngle: 3,
-    fov: 1.25,
-}
+			this.isScript = true;
 
+		}
 
-window.aimbotToggled = false;
+		return super.open( ...arguments );
 
-window.addEventListener('keydown', function(e){
-    if(e.code == window.settings.aimbotKey){
-        window.aimbotToggled = true;
-    }
+	}
 
-})
+	get response() {
 
-window.addEventListener('keyup', function(e){
-    if(e.code == window.settings.aimbotKey){
-        window.aimbotToggled = false;
-    }
+		if ( this.isScript ) {
 
-})
+			const code = super.response;
 
-window.dist3d = (player1, player2)=>{return Math.sqrt((player1.x-player2.x)**2 + (player1.y-player2.y)**2 + (player1.z-player2.z)**2)};
+			const babylonVarName = /new ([a-zA-Z]+)\.Vector3/.exec( code )[ 1 ];
+			const playersVarName = /([^,]+)=\[\],{}/.exec( code )[ 1 ];
+			const myPlayerVarName = /"fire":document.pointerLockElement&&([^&]+)&&/.exec( code )[ 1 ];
+			const sceneVarName = /createMapCells\(([^,]+),/.exec( code )[ 1 ];
+			const cullFuncName = /=([a-zA-Z]+)\(this\.mesh,\.[0-9]+\)/.exec( code )[ 1 ];
 
-window.angleDistance =(player1, player2)=>{
+			console.log( '%cInjecting code...', 'color: red; background: black; font-size: 2em;', {
+				babylonVarName,
+				playersVarName,
+				myPlayerVarName,
+				playersVarName,
+				sceneVarName,
+				cullFuncName
+			} );
 
+			return code.replace( sceneVarName + '.render()', `( function () {
 
-    let angle = window.getAngle(player1, player2);
+				const players = ${playersVarName};
+				const myPlayer = ${myPlayerVarName};
+				const BABYLON = ${babylonVarName};
 
-    const angleDist = Math.sqrt((player1.yaw - angle.yaw)**2 + (player1.pitch - angle.pitch)**2);
-    return angleDist*window.dist3d(player1, player2);
+				if ( ! myPlayer ) {
 
-}
+					return;
 
+				}
 
-window.getNearestPlayer = function(us, enemies){
+				if ( ! window.lineOrigin ) {
 
-    let nearestPlayer = {distance: null, player: null} //we leave it empty to start
+					window.lineOrigin = new BABYLON.Vector3();
+					window.lines = [];
 
-    enemies.forEach(them=>{
+				}
 
-        if(them){ //sometimes a glitched player slips thorugh, so lets make sure they are valid before we do anything
+				window.lineOrigin.copyFrom( myPlayer.actor.mesh.position );
 
-            if(them.id != us.id){ //our own player is in here, so lets make sure to filter it out
+				const yaw = myPlayer.actor.mesh.rotation.y;
 
-                if(them.hp > 0 && them.playing && (!us.team || (us.team != them.team)) && window.visiblePlayers[them.id]){
-                    //firstly lets make sure they arent dead hp > 0, then make sure they are playing and not spectating
-                    //then lets check if our team is equal to their team
-                    //one thing to note, in FFA both our teams are 0, so it would never run cause it would think we are on their team
-                    //so what we do is if(us.team) will return false for team = 0 and true for team != 0
-                    // so it is effectivly if our team is 0 (FFA) or our team isnt equal to their team```
+				window.lineOrigin.x += Math.sin( yaw );
+				window.lineOrigin.z += Math.cos( yaw );
+				window.lineOrigin.y += Math.sin( - myPlayer.pitch );
 
-                    let distance = 999;
-                    if(window.settings.angleOrDistance){
-                        distance = window.angleDistance(us,them) || 0;
-                    }else{
-                        distance = window.dist3d(us,them) || 0;
-                    }
-                    if(  !nearestPlayer.distance || distance < nearestPlayer.distance  ){
-                        nearestPlayer.distance = distance;
-                        nearestPlayer.player = them;
-                    }
-                }
-            }
-        }
-    })
-    if(nearestPlayer.player){
-        return nearestPlayer;
-    }
-    return null;
-}
+				for ( let i = 0; i < window.lines.length; i ++ ) {
 
-window.calcAngle = function(us, them, dist){
-    let delta = {x: them.x - us.x + 2*(them.dx * dist / us.weapon.subClass.velocity),
-                 y: them.y-us.y - 0.072,
-                 z: them.z - us.z + 2*(them.dz * dist / us.weapon.subClass.velocity)
-                };
+					window.lines[ i ].playerExists = false;
 
-    delta = new BABYLON.Vector3(delta.x, delta.y, delta.z).normalize();
-    const newYaw = Math.radRange(-Math.atan2(delta.z, delta.x) + Math.PI / 2)
+				}
 
-    const newPitch = Math.clamp(-Math.asin(delta.y), -1.5, 1.5);
+				for ( let i = 0; i < players.length; i ++ ) {
 
+					const player = players[ i ];
 
+					if ( ! player || player === myPlayer ) {
 
-    us.pitch += ((newPitch || 0)-us.pitch)/window.settings.aimbotSmoothness;
-    us.yaw += ((newYaw || 0)-us.yaw)/window.settings.aimbotSmoothness;
+						continue;
 
+					}
 
-    return 0;
-}
+					if ( player.sphere === undefined ) {
 
-window.getAngle = function(us, them){
-    let delta = {x: them.x - us.x ,
-                 y: them.y-us.y - 0.072,
-                 z: them.z - us.z,
-                };
+						console.log( 'Adding sphere...' );
 
-    delta = new BABYLON.Vector3(delta.x, delta.y, delta.z).normalize();
-    const newYaw = Math.radRange(-Math.atan2(delta.z, delta.x) + Math.PI / 2)
+						const material = new BABYLON.StandardMaterial( 'myMaterial', player.actor.scene );
+						material.emissiveColor = material.diffuseColor = new BABYLON.Color3( 1, 0, 0 );
+						material.wireframe = true;
 
-    const newPitch = Math.clamp(-Math.asin(delta.y), -1.5, 1.5);
+						const sphere = BABYLON.MeshBuilder.CreateBox( 'mySphere', { width: 0.5, height: 0.75, depth: 0.5 }, player.actor.scene );
+						sphere.material = material;
+						sphere.position.y = 0.3;
 
+						sphere.parent = player.actor.mesh;
 
-    return {pitch: newPitch || 0, yaw: newYaw || 0};
-}
+						player.sphere = sphere;
 
+					}
 
+					if ( player.lines === undefined ) {
 
-//aimbot function
-window.otherPlayer;
-window.myPlayer;
+						const options = {
+							points: [ window.lineOrigin, player.actor.mesh.position ],
+							updatable: true
+						};
 
-window.espColourSettings = function(that){
-    if(that.player.team==1){
-        that.bodyMesh.overlayColor = hexToRgb(window.settings.blueTeam);
-    }else if(that.player.team==2){
-        that.bodyMesh.overlayColor = hexToRgb(window.settings.redTeam);
-    }else{
-        that.bodyMesh.overlayColor = hexToRgb(window.settings.orangeTeam);
-    }
-    that.bodyMesh.setRenderingGroupId(1);
-}
+						const lines = options.instance = BABYLON.MeshBuilder.CreateLines( 'lines', options, player.actor.scene );
+						lines.color = new BABYLON.Color3( 1, 0, 0 );
+						lines.alwaysSelectAsActiveMesh = true;
+						lines.renderingGroupId = 1;
 
-window.doAimbot = (ourPlayer,otherPlayers)=>{
+						player.lines = lines;
+						player.lineOptions = options;
 
-    if(!window.aimbotToggled){return};
-    if(!window.myPlayer){
-        otherPlayers.forEach(player=>{
-            if(player){
-                if(player.ws){
-                    window.myPlayer = player;
-                }}
-        })
-    };
-    //loop through other palyers
-    let nearest = window.getNearestPlayer(ourPlayer, otherPlayers);
-    if(nearest){
-        //console.log(nearest.name);
-        calcAngle(window.myPlayer, nearest.player, nearest.distance)
-    }
+						window.lines.push( lines );
+
+						console.log( '%cAdding line...', 'color: green; background: black; font-size: 2em;' );
+
+					}
+
+					player.lines.playerExists = true;
+					player.lines = BABYLON.MeshBuilder.CreateLines( 'lines', player.lineOptions );
+
+					player.sphere.renderingGroupId = window.espEnabled ? 1 : 0;
+					player.sphere.visibility = ( window.aimbotEnabled || window.espEnabled ) && myPlayer !== player && ( myPlayer.team === 0 || myPlayer.team !== player.team );
+
+					player.lines.visibility = player.playing && player.sphere.visibility && window.showLines;
+
+				}
+
+				for ( let i = 0; i < window.lines.length; i ++ ) {
+
+					if ( ! window.lines[ i ].playerExists ) {
+
+						console.log( '%cRemoving line...', 'color: red; background: black; font-size: 2em;' );
+
+						window.lines[ i ].dispose();
+						window.lines.splice( i, 1 );
+
+					}
+
+				}
+
+				if ( window.aimbotEnabled && myPlayer.playing ) {
+
+					let minDistance = Infinity;
+					let targetPlayer;
+
+					for ( let i = 0; i < players.length; i ++ ) {
+
+						const player = players[ i ];
+
+						if ( player && player !== myPlayer && player.playing && ( myPlayer.team === 0 || player.team !== myPlayer.team ) ) {
+
+							const distance = Math.hypot( player.x - myPlayer.x, player.y - myPlayer.y, player.z - myPlayer.z );
+
+							if ( distance < minDistance ) {
+
+								minDistance = distance;
+
+								targetPlayer = player;
+
+							}
+
+						}
+
+					}
+
+					if ( targetPlayer ) {
+
+						const x = targetPlayer.actor.mesh.position.x - myPlayer.actor.mesh.position.x;
+						const y = targetPlayer.actor.mesh.position.y - myPlayer.actor.mesh.position.y;
+						const z = targetPlayer.actor.mesh.position.z - myPlayer.actor.mesh.position.z;
+
+						myPlayer.yaw = Math.radAdd( Math.atan2( x, z ), 0 );
+						myPlayer.pitch = - Math.atan2( y, Math.hypot( x, z ) ) % 1.5;
+
+					}
+
+				}
+
+			} )(); ${sceneVarName}.render()` )
+				.replace( `function ${cullFuncName}`, `
+
+					function ${cullFuncName}() {
+
+						return true;
+
+					}
+
+				function someFunctionWhichWillNeverBeUsedNow` );
+
+		}
+
+		return super.response;
+
+	}
 
 };
-window.visiblePlayers = {};
 
+window.espEnabled = true;
+window.aimbotEnabled = true;
+window.showLines = true;
 
-//The game Does hack check, where if a hack is detected, it sets ur uuid to 255 which stiops u from doing damage
-//what we do here is redefine the varaible to always return 0 so they can never flag us hehehe
-Object.defineProperty(window, "uuid", {get: ()=>{return 0}});
+window.addEventListener( 'keyup', function ( event ) {
 
+	if ( document.activeElement && document.activeElement.tagName === 'INPUT' ) {
 
-//stuff from here on is code used to extract code from the games code, trippy right?
-const request = url => fetch(url).then(res => res.text());
-const injectInline = (data) => {
-    let s = document.createElement('script');
-    s.type = 'text/javascript';
-    s.innerText = data;
-    document.getElementsByTagName('head')[0].appendChild(s);
-}
+		return;
 
+	}
 
-window.hexToRgb =(hex)=>{
-    var result = /^#?([a-f\d]{2})([a-f\d]{2})([a-f\d]{2})$/i.exec(hex);
-    return result ? {
-        r: parseInt(result[1], 16)/255,
-        g: parseInt(result[2], 16)/255,
-        b: parseInt(result[3], 16)/255,
-        a: 1,
-    } : null;
-}
+	switch ( String.fromCharCode( event.keyCode ) ) {
 
-const attemptPatch = (source) => {
-    const patches = new Map()
+		case 'B':
 
+			window.aimbotEnabled = ! window.aimbotEnabled;
 
-    //we get a copy of theg games code, and search for specific location. We found our player stuff and then call our external function where we can run our aimbot logic!
-    .set("RENDERHOOK", [/var (\w+)=([a-zA-Z$]+)\(this\.mesh,\.(\d+)\);/, "rep = `var ${match[1]} = ${match[2]}(this.mesh,.31);window.visiblePlayers[this.player.id]=${match[1]};${match[1]}=true;this.bodyMesh.renderOverlay = !0;window.espColourSettings(this);`", true])
-    .set("PLAYERHOOK", [/if\([^(\/.,)]+\)([^(\/.,)]+)\.actor\.update\([^(\/.,)]+\);/, false])
-    .set("ENEMYHOOK", [/var [^(\/.,=]+\=([^(\/.,\[\]]+)\[[^(\/.,\[\]]\];[^(\/.,=&]+\&\&\([^(\/.,=]+\.chatLineCap/, false])
-    .set("AIMBOTHOOK", [/[^(\/.,]+\([^(\/.,]+,[^(\/.,]+\/\d+\),[^(\/.,]+\.runRenderLoop\(\(function\(\)\{/, "rep = `${match[0]}window.doAimbot(${variables.PLAYERHOOK[1]}, ${variables.ENEMYHOOK[1]});`", true])
+			break;
 
-    variables = {};
+		case 'V':
 
-    for (const [name, item] of patches) {
-        let match = source.match(item[0]);
+			window.espEnabled = ! window.espEnabled;
 
-        if(!item[1]){
-            if(match){
-                variables[name] = match;
-            }else{
-                alert(`Failed to variable ${name}`);
-                continue;
-            }
-        }else{
-            let rep;
-            try{
-                eval(item[1]);
-            }catch(e){
-                alert(`Failed to patch ${name}`);
-                continue;
-            }
-            console.log(rep);
+			break;
 
-            const patched = source.replace(item[0], rep);
-            if (source === patched) {
-                alert(`Failed to patch ${name}`);
-                continue;
-            } else console.log("Successfully patched ", name);
-            source = patched;
-        }
-    }
+		case 'N':
 
-    return source;
-}
+			window.showLines = ! window.showLines;
 
-(async function() {
-    let script = await request(`https://shellshock.io/src/shellshock.min.js`);
-    console.log(script);
-    injectInline(attemptPatch(script)) //modify the games code and then apply it :))
-})();
+			break;
 
+	}
 
+} );
 
-//using a mutation observer oooohhh fancy ik! we can detect scripts before they run and patch them.
-let observer = new MutationObserver(mutations => {
+window.addEventListener( 'DOMContentLoaded', async function () {
 
-    for (const mutation of mutations) {
+	const value = parseInt( new URLSearchParams( window.alloyLocation.search ).get( 'showAd' ), 16 );
 
-        for (let node of mutation.addedNodes) {
+	const shouldShowAd = isNaN( value ) || Date.now() - value < 0 || Date.now() - value > 10 * 60 * 1000;
 
-            if (node.tagName == 'HEAD') {
-            } else if (node.tagName == 'SCRIPT' && node.src.includes("shellshock.min.js")) {
-                node.outerHTML = ``
-                //or we can make it point towards our own custom JS file...
-                //node.src = "https://ourFileLocation/code.js"
-            }
-        }
-    }
-});
+	const temp = document.createElement( 'div' );
 
-observer.observe(document, {
-    childList: true,
-    subtree: true
-})
- 
+	temp.innerHTML = '<div class="popup_window popup_lg centered roundme_lg">' +
+		( shouldShowAd ? `<h1 class="roundme_sm">Loading ad...</h1>` : `<button class="popup_close clickme roundme_sm" onclick="this.parentNode.style.display='none';"></button>
+		<h1 class="roundme_sm">Aimbot & ESP!</h1>
+		<h4 style="text-align:center;">
+			[B] to toggle aimbot
+			<br>
+			[V] to toggle ESP
+			<br>
+			[N] to toggle ESP lines
+			<br>
+			<br>
+			By Zertalious
+		</h4>
+		<div id="btn-horizontal" class="f-center">
+			<button class="ss_button btn_red bevel_red btn_sm" onclick="window.open('https://discord.gg/K24Zxy88VM', '_blank')">Discord</button>
+			<button class="ss_button btn_yolk bevel_yolk btn_sm" onclick="window.open('https://greasyfork.org/en/users/662330-zertalious', '_blank')">More scripts</button>
+		</div>
+		<div id="btn-horizontal" class="f-center">
+			<button class="ss_button btn_green bevel_green btn_sm" onclick="window.open('https://www.instagram.com/zertalious/', '_blank')">Instagram</button>
+			<button class="ss_button btn_blue bevel_blue btn_sm" onclick="window.open('https://twitter.com/Zertalious', '_blank')">Twitter</button>
+		</div>` ) +
+	'</div>';
+
+	document.body.appendChild( temp.children[ 0 ] );
+
+	if ( shouldShowAd ) {
+
+		const url = new URL( window.alloyLocation.href );
+
+		url.searchParams.set( 'showAd', Date.now().toString( 16 ) );
+
+		window.location.href = 'https://zertalious.xyz?ref=' + new TextEncoder().encode( url.href ).toString();
+
+	}
+
+} );
